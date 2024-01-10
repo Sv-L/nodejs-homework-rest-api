@@ -2,6 +2,10 @@ const { User } = require("../models/User")
 const { ctrlWrapper, HttpError } = require('../helpers')
 const bcrypt = require('bcryptjs');
 const jwt = require("jsonwebtoken");
+const gravatar = require("gravatar");
+const fs = require("fs/promises")
+const path = require("path")
+const Jimp = require("jimp");
 
 const { SECRET_KEY } = process.env
 
@@ -15,13 +19,15 @@ const register = async (req, res) => {
 
     const hashPassword = await bcrypt.hashSync(password, 10)
 
-    const newUser = await User.create({ ...req.body, password: hashPassword })
-   
+    const avatarURL = gravatar.url(email, {s: '250', r: 'x', d: 'retro'}, false)
 
+    const newUser = await User.create({ ...req.body, password: hashPassword, avatarURL })
+   
     res.status(201).json({
         "user": {
             "email": newUser.email,
-            "subscription": newUser.subscription
+            "subscription": newUser.subscription,
+            "avatarURL": newUser.avatarURL,
         }
     })
 }
@@ -87,10 +93,43 @@ const updateSubscription = async (req, res, next) => {
         "subscription": data.subscription})
 }
 
+const updateAvatars = async (req, res, next) => {
+    if (!req || !req.user) {
+        throw HttpError(401, "Not authorized")
+    }
+
+    if (!req.file) {
+    throw HttpError(400, "No file uploaded");
+    }
+
+    const destination = req.file.path
+
+    const avatar = await Jimp.read(destination);
+      await avatar.resize(250, 250).write(destination);
+
+
+    const newFileName = req.user._id + '-' + Date.now() + "." + req.file.mimetype.split("/")[1]
+    const avatarsDir = path.join(__dirname, "../", "public", "avatars")
+    const newDestination = path.join(avatarsDir, newFileName)
+    
+    await fs.rename(destination, newDestination)
+
+    const data = await User.findByIdAndUpdate(req.user._id, {avatarURL:newDestination}, { new: true })
+
+if (!data) {
+        throw HttpError(404, "Not Found")
+    }
+
+    res.json({
+        "avatarURL": data.avatarURL})
+}
+
+
 module.exports = {
     register: ctrlWrapper(register),
     login: ctrlWrapper(login),
     current: ctrlWrapper(current),
     logout: ctrlWrapper(logout),
-    updateSubscription: ctrlWrapper(updateSubscription)
+    updateSubscription: ctrlWrapper(updateSubscription),
+    updateAvatars: ctrlWrapper(updateAvatars)
 }
